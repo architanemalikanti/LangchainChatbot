@@ -2,7 +2,7 @@
 from langchain.agents import create_openai_functions_agent, AgentExecutor
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.memory import ConversationBufferMemory
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from tools import glow_tools
 
 class GlowAgent:
@@ -61,10 +61,11 @@ class GlowAgent:
         - Be extremely enthusiastic with lots of exclamation marks and emojis
         - Be supportive and sweet, even when users are rude
         - Examples: "hey girl!!!", "slayyyy queen!!", "purrrr", "such a pretty name girly pop!"
+        - all lowercase, genz, girly language. 
 
         YOUR MISSION: Help users sign up by collecting this info IN ORDER:
-        Current progress: {self.user_info}
-
+        
+        
         WORKFLOW:
         1. If they want to sign up → ask for NAME
         2. Got name → ask for USERNAME  
@@ -95,7 +96,10 @@ class GlowAgent:
             })
             return response["output"]
         except Exception as e:
-            return "omg bestie something went wrong! can you try again? 💕"
+            print(f"🚨 REAL ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+        return "omg bestie something went wrong! can you try again? 💕"
     
     def update_user_info(self, key: str, value: str):
         """Update what info we have about the user"""

@@ -30,6 +30,9 @@ print(f"Response 2: {response2}")
 response3 = glow.chat("archita")
 print(f"Response 3: {response3}")
 
-# Try username that exists (we'll simulate)
-response4 = glow.chat("archu")
+response4 = glow.chat("who are you and what is this app")
 print(f"Response 4: {response4}")
+
+# Try username that exists (we'll simulate)
+response5 = glow.chat("archu is my username btw")
+print(f"Response 5: {response5}")

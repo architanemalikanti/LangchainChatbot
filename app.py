@@ -12,7 +12,7 @@ import os
 from langchain.chat_models import init_chat_model
 os.environ["OPENAI_API_KEY"] = openai_key #get an openai key
 
-llm = init_chat_model("openai:gpt-4o")
+llm = init_chat_model("openai:gpt-4o") 
 
 
 class State(TypedDict):

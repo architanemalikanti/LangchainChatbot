@@ -1,9 +1,16 @@
 # tools.py - Glow's toolkit
+import hashlib
 import random
 import re
 from sqlalchemy.orm import Session
 from database import SessionLocal, User, VerificationCode
 from langchain.tools import tool
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import os
+from dotenv import load_dotenv
 
 @tool
 def check_username_available(username: str) -> str:
@@ -29,11 +36,15 @@ def validate_email_format(email: str) -> str:
 
 @tool
 def generate_and_send_verification_code(email: str) -> str:
-    """Generate a 6-digit code and 'send' it via email"""
-    # Generate random 6-digit code
+    """Generate a 6-digit code and send it via email"""
+    
+    # Clean the email parameter to remove any problematic characters
+    email = email.replace('\xa0', '').replace('\u00a0', '').strip()
+    
+    # Step 1: Generate the secret code
     code = str(random.randint(100000, 999999))
     
-    # Store in database
+    # Step 2: Store code in database (same as before)
     db = SessionLocal()
     try:
         # Remove old codes for this email
@@ -44,13 +55,69 @@ def generate_and_send_verification_code(email: str) -> str:
         db.add(new_code)
         db.commit()
         
-        # In real app, you'd send email here
-        # For now, we'll just print it (like a fake email)
-        print(f"📧 FAKE EMAIL TO {email}: Your verification code is {code}")
+        # Step 3: NOW SEND THE REAL EMAIL! 
+        success = send_verification_email(email, code)
         
-        return f"sent_code_{code}"  # Return the code so we can see it
+        if success:
+            print(f"✅ Real email sent to {email}")
+            return "sent"
+        else:
+            print(f"❌ Failed to send email to {email}")
+            return "failed"
+            
     finally:
         db.close()
+
+def send_verification_email(to_email: str, code: str) -> bool:
+    try:
+        load_dotenv()
+        
+        sender_email = os.getenv("GLOW_EMAIL")
+        sender_password = os.getenv("GLOW_EMAIL_PASSWORD")
+        
+        # Clean credentials of any problematic Unicode characters
+        if sender_email:
+            sender_email = sender_email.replace('\xa0', '').replace('\u00a0', '').strip()
+        
+        if sender_password:
+            sender_password = sender_password.replace('\xa0', '').replace('\u00a0', '').strip()
+        
+        if not sender_email or not sender_password:
+            print("Missing email credentials!")
+            return False
+        
+        # Create a simple MIME text message with explicit UTF-8 encoding
+        body = f"bestieeee your glow code is {code}\nenter it rn so we can get this glow up started\n\nok see u inside babe\n\n- glow"
+        
+        # Remove any problematic Unicode characters
+        import unicodedata
+        body = unicodedata.normalize('NFKD', body)
+        body = ''.join(c for c in body if ord(c) < 128)  # Keep only ASCII characters
+        
+        msg = MIMEText(body, 'plain', 'utf-8')
+        msg['From'] = sender_email
+        msg['To'] = to_email
+        msg['Subject'] = "your glow code is here bestie"
+        
+        # Send email
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls(context=context)
+            server.login(sender_email, sender_password)
+            # Get the message as bytes with explicit UTF-8 encoding
+            message_bytes = msg.as_bytes()
+            server.sendmail(sender_email, to_email, message_bytes)
+        
+        print("Email sent successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"Email error: {e}")
+        return False
+
 
 @tool
 def verify_code(email: str, entered_code: str) -> str:
