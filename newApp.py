@@ -2,6 +2,10 @@
 from flask import Flask, request, jsonify
 from glowBrain import GlowAgent
 import os
+from dotenv import load_dotenv
+
+# Load environment variables FIRST
+load_dotenv()
 
 app = Flask(__name__)
 

@@ -23,7 +23,7 @@ response1 = glow.chat("hey")
 print(f"Response 1: {response1}")
 
 # Try signup
-response2 = glow.chat("im tryna sign up")
+response2 = glow.chat("im tryna sign up what do i do")
 print(f"Response 2: {response2}")
 
 # Give name
@@ -36,3 +36,11 @@ print(f"Response 4: {response4}")
 # Try username that exists (we'll simulate)
 response5 = glow.chat("archu is my username btw")
 print(f"Response 5: {response5}")
+
+# Try username that exists (we'll simulate)
+response6 = glow.chat("y u so weird bruh")
+print(f"Response 6: {response6}")
+
+# Try username that exists (we'll simulate)
+response7 = glow.chat("wanna go out on a date?")
+print(f"Response 7: {response7}")
