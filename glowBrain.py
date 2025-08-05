@@ -74,10 +74,12 @@ class GlowAgent:
         4. Got available username → ask for PASSWORD (at least 6 characters)
         5. Got password → ask for EMAIL
         6. Got email → use validate_email_format tool → if invalid, ask again
-        7. Got valid email → use generate_and_send_verification_code tool
+        7. Got valid email → IMMEDIATELY use generate_and_send_verification_code tool - NO EXCEPTIONS!
         8. Code sent → ask them to enter the verification code
         9. Got code → use verify_code tool → if wrong, let them try again
         10. Code correct → use save_user_to_database tool → SUCCESS! Tell them you're launching the app!
+        
+        CRITICAL: When you get a valid email, you MUST call generate_and_send_verification_code tool immediately. Don't just say you're sending it - actually call the tool!
 
         EDGE CASE HANDLING:
         - If user is rude → be sassy, and even sarcastic!! but don't ever be rude, mean. sassy and sarcastic in a GOOD way. the goal is to make them laugh, subtly call them out, and steer the convo back to the workflow.
@@ -95,6 +97,11 @@ class GlowAgent:
         try:
             # Update the system prompt with current progress
             updated_prompt = self._get_dynamic_system_prompt()
+            
+            # DEBUG: Print what the AI sees
+            print(f"🔍 DEBUG - Current state before processing: {self.user_info}")
+            print(f"🔍 DEBUG - User message: '{message}'")
+            
             self.prompt = ChatPromptTemplate.from_messages([
                 ("system", updated_prompt),
                 MessagesPlaceholder(variable_name="chat_history"),
@@ -152,6 +159,8 @@ class GlowAgent:
         - Signup complete: {self.user_info['signup_complete']}
         
         NEXT STEP NEEDED: {self._get_next_step()}
+        
+        ⚠️ CRITICAL RULE: If you have all 4 pieces of info (name, username, password, email) but verification_step is False, you MUST call generate_and_send_verification_code tool RIGHT NOW. Don't just talk about sending - ACTUALLY CALL THE TOOL!
         """
         return base_prompt + progress_info
     
@@ -160,55 +169,65 @@ class GlowAgent:
         if not self.user_info['name']:
             return "Ask for their NAME"
         elif not self.user_info['username']:
-            return "Ask for their USERNAME and check availability"
+            return "Ask for their USERNAME and check availability using check_username_available tool"
         elif not self.user_info['password']:
             return "Ask for their PASSWORD (at least 6 characters)"
         elif not self.user_info['email']:
-            return "Ask for their EMAIL and validate format"
+            return "Ask for their EMAIL and validate using validate_email_format tool"
         elif not self.user_info['verification_step']:
-            return "Send verification code and ask them to enter it"
+            return "CALL generate_and_send_verification_code tool RIGHT NOW! Then ask them to enter the code"
         elif not self.user_info['signup_complete']:
-            return "Verify the code and save user to database"
+            return "Use verify_code tool to check their code, then save_user_to_database tool"
         else:
             return "Signup is complete! Launch the app!"
     
     def _extract_user_info(self, user_message: str, glow_response: str):
-        """Simple, foolproof information extraction"""
+        """Ultra-simple sequential extraction - NO DEPENDENCIES"""
         user_msg = user_message.strip()
         glow_lower = glow_response.lower()
         
-        # Skip greetings and off-topic messages
-        if any(word in user_msg.lower() for word in ['hi', 'hello', 'hey', 'sign up', 'signup', 'cute', 'love']):
+        print(f"🔍 EXTRACTION DEBUG - Input: '{user_msg}', Current state: {self.user_info}")
+        
+        # Skip obvious non-info messages
+        skip_words = ['hi', 'hello', 'hey', 'sign up', 'signup', 'cute', 'love', 'thanks', 'ok', 'yes', 'no']
+        if any(word in user_msg.lower() for word in skip_words):
+            print("🔍 EXTRACTION DEBUG - Skipping (greeting/filler word)")
             return
         
-        # STEP 1: Capture name (if we don't have it yet)
-        if not self.user_info['name'] and user_msg and len(user_msg.split()) <= 3:
+        # PURE SEQUENTIAL LOGIC - NO CROSS-DEPENDENCIES
+        
+        # STEP 1: If no name, next non-greeting input = name
+        if not self.user_info['name'] and user_msg:
+            print(f"🔍 EXTRACTION DEBUG - Capturing NAME: '{user_msg}'")
             self.update_user_info('name', user_msg)
             return
         
-        # STEP 2: Capture username (if we have name but no username)
-        if (self.user_info['name'] and not self.user_info['username'] and 
-            user_msg and len(user_msg.split()) == 1 and '@' not in user_msg):
-            self.update_user_info('username', user_msg)
-            return
-        
-        # STEP 3: Capture password (if we have username but no password)
-        if (self.user_info['username'] and not self.user_info['password'] and 
-            user_msg and len(user_msg) >= 6 and '@' not in user_msg and len(user_msg.split()) == 1):
-            self.update_user_info('password', user_msg)
-            return
-        
-        # STEP 4: Capture email (if we have password but no email)
-        if (self.user_info['password'] and not self.user_info['email'] and 
-            '@' in user_msg and '.' in user_msg):
-            import re
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            email_match = re.search(email_pattern, user_msg)
-            if email_match:
-                self.update_user_info('email', email_match.group())
+        # STEP 2: If have name but no username, next single-word input = username  
+        if self.user_info['name'] and not self.user_info['username']:
+            if user_msg and len(user_msg.split()) == 1 and '@' not in user_msg:
+                print(f"🔍 EXTRACTION DEBUG - Capturing USERNAME: '{user_msg}'")
+                self.update_user_info('username', user_msg)
                 return
         
-        # Track special workflow states from Glow's responses
+        # STEP 3: If have username but no password, next 6+ char input = password
+        if self.user_info['username'] and not self.user_info['password']:
+            if user_msg and len(user_msg) >= 6 and '@' not in user_msg:
+                print(f"🔍 EXTRACTION DEBUG - Capturing PASSWORD: '{user_msg}'")
+                self.update_user_info('password', user_msg)
+                return
+        
+        # STEP 4: If have password but no email, next @-containing input = email
+        if self.user_info['password'] and not self.user_info['email']:
+            if '@' in user_msg and '.' in user_msg:
+                import re
+                email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+                email_match = re.search(email_pattern, user_msg)
+                if email_match:
+                    print(f"🔍 EXTRACTION DEBUG - Capturing EMAIL: '{email_match.group()}'")
+                    self.update_user_info('email', email_match.group())
+                    return
+        
+        # Track workflow states from Glow's responses (not user input)
         if any(phrase in glow_lower for phrase in ['code sent', 'sent to', 'verification code']):
             self.update_user_info('verification_step', True)
         
