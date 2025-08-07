@@ -35,6 +35,16 @@ def validate_email_format(email: str) -> str:
         return "invalid"
 
 @tool
+def validate_password_strength(password: str) -> str:
+    """Check if password meets requirements"""
+    if len(password) < 6:
+        return "too_short"
+    elif len(password) < 8 and password.isalnum() and password.islower():
+        return "too_weak"
+    else:
+        return "strong"
+
+@tool
 def generate_and_send_verification_code(email: str) -> str:
     """Generate a 6-digit code and send it via email"""
     
@@ -164,7 +174,8 @@ def save_user_to_database(name: str, username: str, password: str, email: str) -
 # List of all Glow's tools
 glow_tools = [
     check_username_available,
-    validate_email_format, 
+    validate_email_format,
+    validate_password_strength,
     generate_and_send_verification_code,
     verify_code,
     save_user_to_database

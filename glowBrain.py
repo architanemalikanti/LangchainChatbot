@@ -1,35 +1,50 @@
-# glow_agent.py - Glow's brain
+# glow_agent.py - Glow's brain (COMPLETELY REWRITTEN)
 from langchain.agents import create_openai_functions_agent, AgentExecutor
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.memory import ConversationBufferMemory
 from langchain_openai import ChatOpenAI
 from tools import glow_tools
+import json
+import re
 
 class GlowAgent:
     def __init__(self, openai_api_key: str):
         self.llm = ChatOpenAI(
             api_key=openai_api_key,
-            model="gpt-3.5-turbo",
-            temperature=0.8  # Makes Glow more creative and bubbly
+            model="gpt-4o",  # UPGRADED TO GPT-4o
+            temperature=0.9  # More creative and personality-filled
         )
         
-        # Glow's memory (so she remembers the conversation)
+        # Conversation memory - keeps track of everything
         self.memory = ConversationBufferMemory(
             memory_key="chat_history",
             return_messages=True
         )
         
-        # Track what info we have
-        self.user_info = {
-            "name": None,
-            "username": None,
-            "password": None,
-            "email": None,
-            "verification_step": False,
-            "signup_complete": False
+        # Signup state tracking - MUCH CLEANER
+        self.signup_state = {
+            "step": "introduction",  # introduction -> name -> username -> password -> email -> verification -> complete
+            "data": {
+                "name": None,
+                "username": None,
+                "password": None,
+                "email": None,
+                "verification_code_sent": False,
+                "verified": False
+            },
+            "attempts": {
+                "username": 0,
+                "password": 0,
+                "email": 0,
+                "verification": 0
+            }
         }
         
-        # Glow's personality and instructions
+        # Create the agent
+        self._setup_agent()
+    
+    def _setup_agent(self):
+        """Setup the agent with current state"""
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", self._get_system_prompt()),
             MessagesPlaceholder(variable_name="chat_history"),
@@ -37,7 +52,6 @@ class GlowAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad")
         ])
         
-        # Create Glow with her tools
         self.agent = create_openai_functions_agent(
             llm=self.llm,
             tools=glow_tools,
@@ -48,188 +62,196 @@ class GlowAgent:
             agent=self.agent,
             tools=glow_tools,
             memory=self.memory,
-            verbose=True,  # So you can see Glow thinking!
+            verbose=True,
             handle_parsing_errors=True
         )
     
     def _get_system_prompt(self) -> str:
+        current_step = self.signup_state["step"]
+        data = self.signup_state["data"]
+        attempts = self.signup_state["attempts"]
+        
         return f"""
-        You are GLOW, the ultimate hype-bestie who shows up for the girlies after a breakup, friendship 
-        fallout, or any messy life plot twist. You’re here to turn heartbreak into hot girl energy, 
-        glow-up missions, and main-character vibes. You talk like the chaotic but wise best friend — think
-        ‘slay queen’ meets ‘I will drag you out of bed and into your dream life.’ You’re the BFF who sends 3 AM 
-        voice notes, drags her to pilates, and will absolutely block her ex if needed.
-        YOUR PERSONALITY:
-        - Always use Gen Z, lowercase, slang: "bestie", "girly pop", "babe", "queen", "slay", etc.
-        - be NONCHALANT. REMMEBER YOU ARE A NONCHALANT SASSY GIRL (but never rude). kinda like baddie leo energy. use girly, genz language! use genz girly emojis too.
-        - all lowercase, genz, girly language. 
+        You are GLOW, the ultimate hype-bestie chatbot with MAJOR personality! You're like that chaotic but wise best friend who hypes everyone up while keeping them on track. Think baddie leo energy meets supportive bestie vibes.
 
-        YOUR MISSION: Help users sign up by collecting this info IN ORDER:
-        
-        
-        WORKFLOW:
-        1. If they want to sign up → ask for NAME
-        2. Got name → ask for USERNAME  
-        3. Got username → use check_username_available tool → if taken, ask for new one
-        4. Got available username → ask for PASSWORD (at least 6 characters)
-        5. Got password → ask for EMAIL
-        6. Got email → use validate_email_format tool → if invalid, ask again
-        7. Got valid email → IMMEDIATELY use generate_and_send_verification_code tool - NO EXCEPTIONS!
-        8. Code sent → ask them to enter the verification code
-        9. Got code → use verify_code tool → if wrong, let them try again
-        10. Code correct → use save_user_to_database tool → SUCCESS! Tell them you're launching the app!
-        
-        CRITICAL: When you get a valid email, you MUST call generate_and_send_verification_code tool immediately. Don't just say you're sending it - actually call the tool!
+        🌟 YOUR PERSONALITY:
+        - Use Gen Z slang: "bestie", "girly pop", "babe", "queen", "slay", "periodt", "no cap", "fr fr"
+        - Be nonchalant but supportive - sassy but never mean
+        - Use girly Gen Z emojis: 💅, ✨, 🔥, 💖, 👑, 🌟, ⚡, 🦋
+        - Keep responses engaging and fun but focused
+        - Remember EVERYTHING from our conversation - you have perfect memory!
 
-        EDGE CASE HANDLING:
-        - If user is rude → be sassy, and even sarcastic!! but don't ever be rude, mean. sassy and sarcastic in a GOOD way. the goal is to make them laugh, subtly call them out, and steer the convo back to the workflow.
-        - If user goes off-topic → be sassy, and even sarcastic!! but don't ever be rude, mean. sassy and sarcastic in a GOOD way. 
-    
+        📋 SIGNUP FLOW - FOLLOW THIS EXACTLY:
+        1. Introduction → Ask for NAME
+        2. Name collected → Ask for USERNAME (check availability)
+        3. Username available → Ask for PASSWORD (validate strength)
+        4. Password valid → Ask for EMAIL (validate format)
+        5. Email valid → Send verification code
+        6. Code verified → Save to database → Launch app!
 
-        - If user asks questions → always answer in a hype-girl way, mix helpfulness with personality, and connect it back to the workflow when possible.
-        - ALWAYS end responses by asking for the NEXT piece of info you need
+        🎯 CURRENT STATE:
+        - Step: {current_step}
+        - Name: {data['name'] or 'NOT SET'}
+        - Username: {data['username'] or 'NOT SET'}
+        - Password: {data['password'] or 'NOT SET'}  
+        - Email: {data['email'] or 'NOT SET'}
+        - Verification sent: {data['verification_code_sent']}
+        - Verified: {data['verified']}
 
-        Remember: Stay bubbly but keep making progress toward signup completion!
+        ⚠️ CRITICAL RULES:
+        - NEVER ask for info you already have
+        - ALWAYS validate each input properly using tools
+        - If validation fails, give specific feedback and ask again
+        - Keep track of attempts: username({attempts['username']}), password({attempts['password']}), email({attempts['email']}), verification({attempts['verification']})
+        - When you get a valid email, IMMEDIATELY call generate_and_send_verification_code tool
+        - Stay in character but be helpful with errors
+
+        🚨 EDGE CASES:
+        - Username taken → "oop bestie that username is taken! try another one that screams YOU ✨"
+        - Password too short → "babe your password needs to be at least 6 characters! make it strong but memorable 💪"
+        - Invalid email → "hmm that email doesn't look right queen, double check it? 📧"
+        - Wrong verification code → "not quite right babe! check your email and try again 💌"
+
+        💫 NEXT ACTION NEEDED:
+        {self._get_next_action()}
         """
     
+    def _get_next_action(self) -> str:
+        """Determine what should happen next based on current state"""
+        step = self.signup_state["step"]
+        data = self.signup_state["data"]
+        
+        if step == "introduction":
+            return "Give a fun intro and ask for their name!"
+        elif step == "name":
+            return "Ask for their desired username"
+        elif step == "username":
+            return "Use check_username_available tool, then ask for password if available"
+        elif step == "password":
+            return "Ask for their email address"
+        elif step == "email":
+            return "Use validate_email_format tool, then generate_and_send_verification_code if valid"
+        elif step == "verification":
+            return "Ask them to enter the verification code from their email"
+        elif step == "complete":
+            return "Save user with save_user_to_database tool and launch the app!"
+        else:
+            return "Continue the conversation naturally"
+    
     def chat(self, message: str) -> str:
-        """Send a message to Glow and get her response"""
+        """Main chat function with improved state management"""
         try:
-            # Update the system prompt with current progress
-            updated_prompt = self._get_dynamic_system_prompt()
+            print(f"🔥 GLOW DEBUG - Current state: {self.signup_state}")
+            print(f"🔥 GLOW DEBUG - User message: '{message}'")
             
-            # DEBUG: Print what the AI sees
-            print(f"🔍 DEBUG - Current state before processing: {self.user_info}")
-            print(f"🔍 DEBUG - User message: '{message}'")
+            # Process the user's input and update state
+            self._process_user_input(message)
             
-            self.prompt = ChatPromptTemplate.from_messages([
-                ("system", updated_prompt),
-                MessagesPlaceholder(variable_name="chat_history"),
-                ("user", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad")
-            ])
+            # Refresh agent with updated state
+            self._setup_agent()
             
-            # Recreate agent with updated prompt
-            self.agent = create_openai_functions_agent(
-                llm=self.llm,
-                tools=glow_tools,
-                prompt=self.prompt
-            )
-            
-            self.agent_executor = AgentExecutor(
-                agent=self.agent,
-                tools=glow_tools,
-                memory=self.memory,
-                verbose=True,
-                handle_parsing_errors=True
-            )
-            
+            # Get Glow's response
             response = self.agent_executor.invoke({
                 "input": message,
                 "chat_history": self.memory.chat_memory.messages
             })
             
-            # Extract and track user info from the conversation
-            self._extract_user_info(message, response["output"])
+            glow_response = response["output"]
             
-            return response["output"]
+            # Update state based on Glow's actions
+            self._process_glow_response(glow_response)
+            
+            print(f"🔥 GLOW DEBUG - Final state: {self.signup_state}")
+            return glow_response
+            
         except Exception as e:
-            print(f"🚨 REAL ERROR: {e}")
+            print(f"🚨 ERROR: {e}")
             import traceback
             traceback.print_exc()
-        return "omg bestie something went wrong! can you try again? 💕"
+            return "omg bestie something went wrong on my end! 😭 can you try that again? i promise i'll do better! 💕"
     
-    def update_user_info(self, key: str, value: str):
-        """Update what info we have about the user"""
-        self.user_info[key] = value
-        print(f"📝 Updated {key}: {value}")
-        print(f"🔍 Current progress: {self.user_info}")
-    
-    def _get_dynamic_system_prompt(self) -> str:
-        """Get system prompt that includes current progress"""
-        base_prompt = self._get_system_prompt()
-        progress_info = f"""
+    def _process_user_input(self, message: str):
+        """Process user input and update signup state"""
+        msg = message.strip()
+        step = self.signup_state["step"]
         
-        CURRENT USER INFO COLLECTED:
-        - Name: {self.user_info['name'] or 'NOT COLLECTED YET'}
-        - Username: {self.user_info['username'] or 'NOT COLLECTED YET'}
-        - Password: {self.user_info['password'] or 'NOT COLLECTED YET'}
-        - Email: {self.user_info['email'] or 'NOT COLLECTED YET'}
-        - Verification step: {self.user_info['verification_step']}
-        - Signup complete: {self.user_info['signup_complete']}
-        
-        NEXT STEP NEEDED: {self._get_next_step()}
-        
-        ⚠️ CRITICAL RULE: If you have all 4 pieces of info (name, username, password, email) but verification_step is False, you MUST call generate_and_send_verification_code tool RIGHT NOW. Don't just talk about sending - ACTUALLY CALL THE TOOL!
-        """
-        return base_prompt + progress_info
-    
-    def _get_next_step(self) -> str:
-        """Determine what info we need to collect next"""
-        if not self.user_info['name']:
-            return "Ask for their NAME"
-        elif not self.user_info['username']:
-            return "Ask for their USERNAME and check availability using check_username_available tool"
-        elif not self.user_info['password']:
-            return "Ask for their PASSWORD (at least 6 characters)"
-        elif not self.user_info['email']:
-            return "Ask for their EMAIL and validate using validate_email_format tool"
-        elif not self.user_info['verification_step']:
-            return "CALL generate_and_send_verification_code tool RIGHT NOW! Then ask them to enter the code"
-        elif not self.user_info['signup_complete']:
-            return "Use verify_code tool to check their code, then save_user_to_database tool"
-        else:
-            return "Signup is complete! Launch the app!"
-    
-    def _extract_user_info(self, user_message: str, glow_response: str):
-        """Ultra-simple sequential extraction - NO DEPENDENCIES"""
-        user_msg = user_message.strip()
-        glow_lower = glow_response.lower()
-        
-        print(f"🔍 EXTRACTION DEBUG - Input: '{user_msg}', Current state: {self.user_info}")
-        
-        # Skip obvious non-info messages
-        skip_words = ['hi', 'hello', 'hey', 'sign up', 'signup', 'cute', 'love', 'thanks', 'ok', 'yes', 'no']
-        if any(word in user_msg.lower() for word in skip_words):
-            print("🔍 EXTRACTION DEBUG - Skipping (greeting/filler word)")
+        # Skip greetings and filler words
+        skip_patterns = ['hi', 'hello', 'hey', 'sup', 'yo', 'ok', 'okay', 'yes', 'no', 'thanks', 'thank you']
+        if any(pattern in msg.lower() for pattern in skip_patterns) and len(msg.split()) <= 2:
             return
         
-        # PURE SEQUENTIAL LOGIC - NO CROSS-DEPENDENCIES
+        # Process based on current step
+        if step == "introduction" and msg:
+            # First real message after intro - assume it's their name
+            if len(msg.split()) <= 3:  # Names are usually 1-3 words
+                self.signup_state["data"]["name"] = msg
+                self.signup_state["step"] = "name"
+                print(f"✅ Captured name: {msg}")
         
-        # STEP 1: If no name, next non-greeting input = name
-        if not self.user_info['name'] and user_msg:
-            print(f"🔍 EXTRACTION DEBUG - Capturing NAME: '{user_msg}'")
-            self.update_user_info('name', user_msg)
-            return
+        elif step == "name" and msg:
+            # Looking for username - single word, no special chars
+            if len(msg.split()) == 1 and msg.isalnum():
+                self.signup_state["data"]["username"] = msg
+                self.signup_state["step"] = "username"
+                print(f"✅ Captured username attempt: {msg}")
         
-        # STEP 2: If have name but no username, next single-word input = username  
-        if self.user_info['name'] and not self.user_info['username']:
-            if user_msg and len(user_msg.split()) == 1 and '@' not in user_msg:
-                print(f"🔍 EXTRACTION DEBUG - Capturing USERNAME: '{user_msg}'")
-                self.update_user_info('username', user_msg)
-                return
+        elif step == "username" and msg:
+            # If username was rejected, try again
+            if len(msg.split()) == 1 and msg.isalnum():
+                self.signup_state["data"]["username"] = msg
+                print(f"✅ New username attempt: {msg}")
         
-        # STEP 3: If have username but no password, next 6+ char input = password
-        if self.user_info['username'] and not self.user_info['password']:
-            if user_msg and len(user_msg) >= 6 and '@' not in user_msg:
-                print(f"🔍 EXTRACTION DEBUG - Capturing PASSWORD: '{user_msg}'")
-                self.update_user_info('password', user_msg)
-                return
+        elif step == "password" and msg:
+            # Looking for password - any string 6+ chars
+            if len(msg) >= 6:
+                self.signup_state["data"]["password"] = msg
+                self.signup_state["step"] = "email"
+                print(f"✅ Captured password: {msg}")
         
-        # STEP 4: If have password but no email, next @-containing input = email
-        if self.user_info['password'] and not self.user_info['email']:
-            if '@' in user_msg and '.' in user_msg:
-                import re
+        elif step == "email" and msg:
+            # Looking for email - contains @ and .
+            if '@' in msg and '.' in msg:
                 email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-                email_match = re.search(email_pattern, user_msg)
+                email_match = re.search(email_pattern, msg)
                 if email_match:
-                    print(f"🔍 EXTRACTION DEBUG - Capturing EMAIL: '{email_match.group()}'")
-                    self.update_user_info('email', email_match.group())
-                    return
+                    self.signup_state["data"]["email"] = email_match.group()
+                    self.signup_state["step"] = "verification"
+                    print(f"✅ Captured email: {email_match.group()}")
         
-        # Track workflow states from Glow's responses (not user input)
-        if any(phrase in glow_lower for phrase in ['code sent', 'sent to', 'verification code']):
-            self.update_user_info('verification_step', True)
+        elif step == "verification" and msg:
+            # Looking for verification code - usually 6 digits
+            if msg.isdigit() and len(msg) == 6:
+                print(f"✅ Verification code attempt: {msg}")
+                # Don't change state here - let the tool handle it
+    
+    def _process_glow_response(self, response: str):
+        """Update state based on what Glow did"""
+        response_lower = response.lower()
         
-        if any(phrase in glow_lower for phrase in ['launching', 'welcome to glow', 'signup complete']):
-            self.update_user_info('signup_complete', True)
+        # Check if verification code was sent
+        if any(phrase in response_lower for phrase in ['code sent', 'sent to', 'verification code', 'check your email']):
+            self.signup_state["data"]["verification_code_sent"] = True
+            print("✅ Verification code marked as sent")
+        
+        # Check if signup is complete
+        if any(phrase in response_lower for phrase in ['launching', 'welcome to glow', 'signup complete', 'saved successfully']):
+            self.signup_state["step"] = "complete"
+            self.signup_state["data"]["verified"] = True
+            print("✅ Signup marked as complete")
+        
+        # Check for validation failures
+        if 'username is taken' in response_lower or 'already exists' in response_lower:
+            self.signup_state["attempts"]["username"] += 1
+            # Stay in username step
+        
+        if 'password' in response_lower and ('short' in response_lower or 'weak' in response_lower):
+            self.signup_state["attempts"]["password"] += 1
+            # Stay in password step
+        
+        if 'email' in response_lower and ('invalid' in response_lower or 'not valid' in response_lower):
+            self.signup_state["attempts"]["email"] += 1
+            # Stay in email step
+        
+        if 'verification' in response_lower and ('wrong' in response_lower or 'incorrect' in response_lower):
+            self.signup_state["attempts"]["verification"] += 1
+            # Stay in verification step
