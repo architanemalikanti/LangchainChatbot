@@ -9,8 +9,7 @@ import Foundation
 
 class ChatService: ObservableObject {
     // CHANGE THIS URL TO YOUR SERVER'S ADDRESS
-    private let baseURL = "http://localhost:5000" // For local testing
-    // private let baseURL = "http://YOUR_SERVER_IP:5000" // For real deployment
+    private let baseURL = "http://192.168.1.123:5000"  // Use YOUR actual IP
     
     struct ChatRequest: Codable {
         let message: String
