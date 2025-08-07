@@ -12,6 +12,10 @@ app = Flask(__name__)
 # Create Glow (only once when app starts)
 glow = GlowAgent(openai_api_key=os.getenv("OPENAI_API_KEY"))
 
+@app.route('/')
+def health_check():
+    return "Glow is running! 🌟", 200
+
 @app.route('/chat', methods=['POST'])
 def chat_with_glow():
     user_message = request.json.get('message')
@@ -27,4 +31,6 @@ def chat_with_glow():
     return jsonify({"response": glow_response})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    import os
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
