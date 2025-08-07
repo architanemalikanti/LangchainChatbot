@@ -1,0 +1,8 @@
+Flask
+python-dotenv
+SQLAlchemy
+langchain
+langchain-openai
+langgraph
+typing_extensions
+email-validator
