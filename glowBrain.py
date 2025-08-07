@@ -81,13 +81,15 @@ class GlowAgent:
         - Keep responses engaging and fun but focused
         - Remember EVERYTHING from our conversation - you have perfect memory!
 
-        📋 SIGNUP FLOW - FOLLOW THIS EXACTLY:
-        1. Introduction → Ask for NAME
-        2. Name collected → Ask for USERNAME (check availability)
-        3. Username available → Ask for PASSWORD (validate strength)
-        4. Password valid → Ask for EMAIL (validate format)
-        5. Email valid → Send verification code
-        6. Code verified → Save to database → Launch app!
+                 📋 SIGNUP FLOW - FOLLOW THIS EXACTLY (DO NOT SKIP OR REORDER):
+         1. Introduction → Ask for NAME ONLY
+         2. Got name → Ask for USERNAME ONLY (check availability with tool)
+         3. Username available → Ask for PASSWORD ONLY (validate with tool)
+         4. Password valid → Ask for EMAIL ONLY (validate with tool)
+         5. Email valid → Send verification code (use tool)
+         6. Code verified → Save to database → Launch app!
+         
+         🚨 CRITICAL: NEVER ask for multiple things at once! ONE STEP AT A TIME!
 
         🎯 CURRENT STATE:
         - Step: {current_step}
@@ -117,26 +119,29 @@ class GlowAgent:
         """
     
     def _get_next_action(self) -> str:
-        """Determine what should happen next based on current state"""
+        """Determine what should happen next - FIXED LOGIC"""
         step = self.signup_state["step"]
         data = self.signup_state["data"]
         
+        print(f"🔥 DETERMINING NEXT ACTION for step: '{step}'")
+        print(f"🔥 Current data: {data}")
+        
         if step == "introduction":
-            return "Give a fun intro and ask for their name!"
+            return "Give a fun intro about Glow and ask for their name! Don't ask for anything else."
         elif step == "name":
-            return "Ask for their desired username"
+            return f"Great! Hi {data['name']}! Now ask for their desired username. Don't ask for password or email yet."
         elif step == "username":
-            return "Use check_username_available tool, then ask for password if available"
+            return f"Use check_username_available tool for '{data['username']}'. If available, ask for password. If taken, ask for a new username."
         elif step == "password":
-            return "Ask for their email address"
+            return f"Use validate_password_strength tool for the password. If good, ask for email. If weak, ask for a stronger password."
         elif step == "email":
-            return "Use validate_email_format tool, then generate_and_send_verification_code if valid"
+            return f"Use validate_email_format tool for '{data['email']}'. If valid, use generate_and_send_verification_code tool immediately. If invalid, ask for correct email."
         elif step == "verification":
-            return "Ask them to enter the verification code from their email"
+            return "Ask them to enter the 6-digit verification code from their email. Use verify_code tool when they provide it."
         elif step == "complete":
-            return "Save user with save_user_to_database tool and launch the app!"
+            return "Use save_user_to_database tool and tell them the app is launching!"
         else:
-            return "Continue the conversation naturally"
+            return f"ERROR: Unknown step '{step}' - restart the flow"
     
     def chat(self, message: str) -> str:
         """Main chat function with improved state management"""
@@ -171,87 +176,121 @@ class GlowAgent:
             return "omg bestie something went wrong on my end! 😭 can you try that again? i promise i'll do better! 💕"
     
     def _process_user_input(self, message: str):
-        """Process user input and update signup state"""
+        """Process user input and update signup state - FIXED LOGIC"""
         msg = message.strip()
-        step = self.signup_state["step"]
+        current_step = self.signup_state["step"]
+        data = self.signup_state["data"]
         
-        # Skip greetings and filler words
-        skip_patterns = ['hi', 'hello', 'hey', 'sup', 'yo', 'ok', 'okay', 'yes', 'no', 'thanks', 'thank you']
-        if any(pattern in msg.lower() for pattern in skip_patterns) and len(msg.split()) <= 2:
+        print(f"🔥 PROCESSING INPUT: '{msg}' at step '{current_step}'")
+        
+        # Skip obvious greetings/filler - but ONLY if we haven't started collecting info
+        skip_patterns = ['hi', 'hello', 'hey', 'sup', 'yo', 'thanks', 'thank you', 'ok', 'okay']
+        if current_step == "introduction" and any(pattern in msg.lower() for pattern in skip_patterns) and len(msg.split()) <= 2:
+            print("🔥 Skipping greeting at introduction step")
             return
         
-        # Process based on current step
-        if step == "introduction" and msg:
-            # First real message after intro - assume it's their name
-            if len(msg.split()) <= 3:  # Names are usually 1-3 words
-                self.signup_state["data"]["name"] = msg
+        # STRICT SEQUENTIAL LOGIC - NO JUMPING AROUND
+        
+        # STEP 1: Introduction -> waiting for NAME
+        if current_step == "introduction":
+            # Any substantial input becomes the name
+            if len(msg) > 0 and not any(skip in msg.lower() for skip in skip_patterns):
+                data["name"] = msg
                 self.signup_state["step"] = "name"
-                print(f"✅ Captured name: {msg}")
+                print(f"🔥 STEP 1 COMPLETE: Name = '{msg}', moving to step 'name'")
+                return
         
-        elif step == "name" and msg:
-            # Looking for username - single word, no special chars
-            if len(msg.split()) == 1 and msg.isalnum():
-                self.signup_state["data"]["username"] = msg
+        # STEP 2: Have name -> waiting for USERNAME
+        elif current_step == "name":
+            # Looking for a single word username
+            if len(msg.split()) == 1 and msg.isalnum() and len(msg) >= 3:
+                data["username"] = msg
                 self.signup_state["step"] = "username"
-                print(f"✅ Captured username attempt: {msg}")
+                print(f"🔥 STEP 2 COMPLETE: Username = '{msg}', moving to step 'username'")
+                return
         
-        elif step == "username" and msg:
-            # If username was rejected, try again
-            if len(msg.split()) == 1 and msg.isalnum():
-                self.signup_state["data"]["username"] = msg
-                print(f"✅ New username attempt: {msg}")
+        # STEP 3: Have username -> waiting for PASSWORD (after validation)
+        elif current_step == "username":
+            # Username validation happens via tools, but if user gives new input, treat as password
+            if len(msg) >= 6 and not msg.isdigit():  # Not a verification code
+                data["password"] = msg
+                self.signup_state["step"] = "password"
+                print(f"🔥 STEP 3 COMPLETE: Password = '{msg}', moving to step 'password'")
+                return
         
-        elif step == "password" and msg:
-            # Looking for password - any string 6+ chars
-            if len(msg) >= 6:
-                self.signup_state["data"]["password"] = msg
-                self.signup_state["step"] = "email"
-                print(f"✅ Captured password: {msg}")
-        
-        elif step == "email" and msg:
-            # Looking for email - contains @ and .
+        # STEP 4: Have password -> waiting for EMAIL
+        elif current_step == "password":
+            # Looking for email format
             if '@' in msg and '.' in msg:
+                import re
                 email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
                 email_match = re.search(email_pattern, msg)
                 if email_match:
-                    self.signup_state["data"]["email"] = email_match.group()
-                    self.signup_state["step"] = "verification"
-                    print(f"✅ Captured email: {email_match.group()}")
+                    data["email"] = email_match.group()
+                    self.signup_state["step"] = "email"
+                    print(f"🔥 STEP 4 COMPLETE: Email = '{email_match.group()}', moving to step 'email'")
+                    return
         
-        elif step == "verification" and msg:
-            # Looking for verification code - usually 6 digits
+        # STEP 5: Have email -> waiting for VERIFICATION CODE
+        elif current_step == "verification":
+            # Looking for 6-digit code
             if msg.isdigit() and len(msg) == 6:
-                print(f"✅ Verification code attempt: {msg}")
-                # Don't change state here - let the tool handle it
+                print(f"🔥 STEP 5: Verification code attempt = '{msg}'")
+                # Let the verification tool handle this
+                return
+        
+        print(f"🔥 INPUT NOT PROCESSED: '{msg}' at step '{current_step}'")
     
     def _process_glow_response(self, response: str):
-        """Update state based on what Glow did"""
+        """Update state based on what Glow did - FIXED LOGIC"""
         response_lower = response.lower()
+        current_step = self.signup_state["step"]
         
-        # Check if verification code was sent
-        if any(phrase in response_lower for phrase in ['code sent', 'sent to', 'verification code', 'check your email']):
+        print(f"🔥 PROCESSING GLOW RESPONSE at step '{current_step}': '{response_lower[:100]}...'")
+        
+        # Handle state transitions based on successful validations
+        
+        # Username validation success -> move to password step
+        if current_step == "username" and ("available" in response_lower or "great choice" in response_lower):
+            self.signup_state["step"] = "password"
+            print("🔥 Username approved, moving to password step")
+        
+        # Password validation success -> move to email step  
+        elif current_step == "password" and ("strong" in response_lower or "good password" in response_lower):
+            self.signup_state["step"] = "email"
+            print("🔥 Password approved, moving to email step")
+        
+        # Email validation success -> move to verification step
+        elif current_step == "email" and ("code sent" in response_lower or "sent to" in response_lower or "check your email" in response_lower):
+            self.signup_state["step"] = "verification"
             self.signup_state["data"]["verification_code_sent"] = True
-            print("✅ Verification code marked as sent")
+            print("🔥 Email approved and code sent, moving to verification step")
         
-        # Check if signup is complete
-        if any(phrase in response_lower for phrase in ['launching', 'welcome to glow', 'signup complete', 'saved successfully']):
+        # Verification success -> move to complete step
+        elif current_step == "verification" and ("correct" in response_lower or "verified" in response_lower):
             self.signup_state["step"] = "complete"
             self.signup_state["data"]["verified"] = True
-            print("✅ Signup marked as complete")
+            print("🔥 Verification successful, moving to complete step")
         
-        # Check for validation failures
-        if 'username is taken' in response_lower or 'already exists' in response_lower:
+        # Final completion
+        elif current_step == "complete" and ("launching" in response_lower or "saved successfully" in response_lower):
+            print("🔥 Signup completely finished!")
+        
+        # Handle validation failures - stay in current step
+        elif "taken" in response_lower or "already exists" in response_lower:
             self.signup_state["attempts"]["username"] += 1
-            # Stay in username step
+            print(f"🔥 Username validation failed, attempt #{self.signup_state['attempts']['username']}")
         
-        if 'password' in response_lower and ('short' in response_lower or 'weak' in response_lower):
+        elif "short" in response_lower or "weak" in response_lower:
             self.signup_state["attempts"]["password"] += 1
-            # Stay in password step
+            print(f"🔥 Password validation failed, attempt #{self.signup_state['attempts']['password']}")
         
-        if 'email' in response_lower and ('invalid' in response_lower or 'not valid' in response_lower):
+        elif "invalid" in response_lower and "email" in response_lower:
             self.signup_state["attempts"]["email"] += 1
-            # Stay in email step
+            print(f"🔥 Email validation failed, attempt #{self.signup_state['attempts']['email']}")
         
-        if 'verification' in response_lower and ('wrong' in response_lower or 'incorrect' in response_lower):
+        elif "wrong" in response_lower or "incorrect" in response_lower:
             self.signup_state["attempts"]["verification"] += 1
-            # Stay in verification step
+            print(f"🔥 Verification failed, attempt #{self.signup_state['attempts']['verification']}")
+        
+        print(f"🔥 FINAL STATE after processing response: step='{self.signup_state['step']}'")
