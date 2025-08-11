@@ -6,3 +6,6 @@ langchain-openai
 langgraph
 typing_extensions
 email-validator
+scikit-learn
+numpy
+openai
